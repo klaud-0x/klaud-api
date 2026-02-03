@@ -1,0 +1,10 @@
+{
+  "name": "klaud-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Research tools API for AI agents",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  }
+}

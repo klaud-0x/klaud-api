@@ -1,0 +1,10 @@
+name = "klaud-api"
+main = "src/index.js"
+compatibility_date = "2024-12-01"
+
+[vars]
+DAILY_FREE_LIMIT = "20"
+
+[[kv_namespaces]]
+binding = "USAGE"
+id = "18c53937c9734310b355f7ee92f8d945"
