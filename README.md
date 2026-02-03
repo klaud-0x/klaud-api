@@ -95,6 +95,24 @@ curl "https://klaud-api.klaud0x.workers.dev/api/extract?url=https://news.ycombin
 - **Bots** — Telegram/Discord bots that share trending repos or papers
 - **RAG pipelines** — enrich your retrieval with fresh web and biomedical data
 
+## OpenClaw Skill (ClawHub)
+
+If you run an AI agent on [OpenClaw](https://openclaw.ai), install the skill directly:
+
+```bash
+clawhub install klaud-api
+```
+
+Your agent will automatically know how to use all 7 endpoints. No config needed for free tier.
+
+**Pro tier** — add your API key to `openclaw.json`:
+
+```json
+{ "skills": { "entries": { "klaud-api": { "apiKey": "ka_YOUR_KEY" } } } }
+```
+
+Browse on ClawHub: [clawhub.ai/skills → klaud-api](https://clawhub.ai)
+
 ## Pricing
 
 | Plan | Price | Requests/day |
