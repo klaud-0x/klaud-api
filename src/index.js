@@ -1,5 +1,5 @@
 /**
- * Klaud API v2.1 — Research & Dev tools for AI agents
+ * Klaud API v3.0 — Research & Dev tools for AI agents
  * Free tier: 20 requests/day per IP
  * Pro: $9/month USDT (TRC20) — 1000 req/day + API key
  * 
@@ -12,6 +12,10 @@
  *   GET /api/github    — Trending GitHub repos
  *   GET /api/extract   — Web page content extraction
  *   GET /api/drugs     — Drug/molecule search via ChEMBL
+ *   GET /api/weather   — Weather forecast via Open-Meteo
+ *   GET /api/wiki      — Wikipedia article search & summary
+ *   GET /api/news      — Google News RSS feed search
+ *   GET /api/reddit    — Reddit hot/trending posts
  *   GET /api/status    — API status + your usage
  */
 
@@ -67,8 +71,8 @@ export default {
             usage,
             limit,
             remaining: Math.max(0, limit - usage),
-            endpoints: ['/api/hn', '/api/pubmed', '/api/arxiv', '/api/crypto', '/api/github', '/api/extract', '/api/drugs'],
-            version: '2.1'
+            endpoints: ['/api/hn', '/api/pubmed', '/api/arxiv', '/api/crypto', '/api/github', '/api/extract', '/api/drugs', '/api/weather', '/api/wiki', '/api/news', '/api/reddit'],
+            version: '3.0'
           });
         }
 
@@ -93,10 +97,14 @@ export default {
         if (path === '/api/github') return handleGitHub(url);
         if (path === '/api/extract') return handleExtract(url);
         if (path === '/api/drugs') return handleDrugs(url);
+        if (path === '/api/weather') return handleWeather(url);
+        if (path === '/api/wiki') return handleWiki(url);
+        if (path === '/api/news') return handleNews(url);
+        if (path === '/api/reddit') return handleReddit(url);
 
         return json({
           error: 'Unknown endpoint',
-          endpoints: ['/api/hn', '/api/pubmed', '/api/arxiv', '/api/crypto', '/api/github', '/api/extract', '/api/drugs', '/api/status']
+          endpoints: ['/api/hn', '/api/pubmed', '/api/arxiv', '/api/crypto', '/api/github', '/api/extract', '/api/drugs', '/api/weather', '/api/wiki', '/api/news', '/api/reddit', '/api/status']
         }, 404);
       }
 
@@ -582,6 +590,167 @@ async function handleDrugs(url) {
   return json({ query, count: molecules.length, molecules });
 }
 
+// === WEATHER (Open-Meteo) ===
+async function handleWeather(url) {
+  const city = url.searchParams.get('city');
+  let lat = url.searchParams.get('lat');
+  let lon = url.searchParams.get('lon');
+
+  if (!city && (!lat || !lon)) {
+    return json({ error: 'Missing parameter. Use ?city=Moscow or ?lat=55.75&lon=37.62', examples: ['/api/weather?city=London', '/api/weather?lat=40.71&lon=-74.01'] }, 400);
+  }
+
+  if (city) {
+    const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=en`);
+    const geoData = await geoRes.json();
+    if (!geoData.results || geoData.results.length === 0) return json({ error: `City "${city}" not found` }, 404);
+    lat = geoData.results[0].latitude;
+    lon = geoData.results[0].longitude;
+  }
+
+  const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum&timezone=auto&forecast_days=3`);
+  const wx = await wxRes.json();
+
+  const WMO = {0:'Clear',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog',48:'Rime fog',51:'Light drizzle',53:'Drizzle',55:'Dense drizzle',61:'Slight rain',63:'Rain',65:'Heavy rain',71:'Slight snow',73:'Snow',75:'Heavy snow',77:'Snow grains',80:'Slight showers',81:'Showers',82:'Violent showers',85:'Snow showers',86:'Heavy snow showers',95:'Thunderstorm',96:'Thunderstorm+hail',99:'Thunderstorm+heavy hail'};
+
+  return json({
+    location: city || `${lat},${lon}`,
+    current: {
+      temperature_c: wx.current?.temperature_2m,
+      humidity_pct: wx.current?.relative_humidity_2m,
+      wind_kmh: wx.current?.wind_speed_10m,
+      condition: WMO[wx.current?.weather_code] || 'Unknown'
+    },
+    forecast: (wx.daily?.time || []).map((d, i) => ({
+      date: d,
+      high_c: wx.daily.temperature_2m_max[i],
+      low_c: wx.daily.temperature_2m_min[i],
+      condition: WMO[wx.daily.weather_code[i]] || 'Unknown',
+      precipitation_mm: wx.daily.precipitation_sum[i]
+    })),
+    timezone: wx.timezone
+  });
+}
+
+// === WIKIPEDIA ===
+async function handleWiki(url) {
+  const query = url.searchParams.get('q');
+  const lang = url.searchParams.get('lang') || 'en';
+  if (!query) return json({ error: 'Missing ?q= parameter', examples: ['/api/wiki?q=quantum+computing', '/api/wiki?q=CRISPR&lang=ru'] }, 400);
+
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '3'), 10);
+
+  const searchRes = await fetch(`https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json&origin=*`);
+  const searchData = await searchRes.json();
+  const results = searchData?.query?.search || [];
+
+  if (results.length === 0) return json({ query, lang, count: 0, articles: [] });
+
+  const articles = await Promise.all(results.map(async r => {
+    try {
+      const sumRes = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(r.title)}`);
+      const sum = await sumRes.json();
+      return {
+        title: sum.title,
+        extract: sum.extract?.substring(0, 500) || null,
+        url: sum.content_urls?.desktop?.page || `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(r.title)}`,
+        thumbnail: sum.thumbnail?.source || null,
+        description: sum.description || null
+      };
+    } catch {
+      return { title: r.title, extract: r.snippet?.replace(/<[^>]+>/g, ''), url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(r.title)}` };
+    }
+  }));
+
+  return json({ query, lang, count: articles.length, articles });
+}
+
+// === NEWS (Google News RSS) ===
+async function handleNews(url) {
+  const query = url.searchParams.get('q');
+  if (!query) return json({ error: 'Missing ?q= parameter', examples: ['/api/news?q=artificial+intelligence', '/api/news?q=SpaceX&limit=5&lang=en'] }, 400);
+
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 20);
+  const lang = url.searchParams.get('lang') || 'en';
+
+  let articles = [];
+
+  // Try Google News RSS
+  try {
+    const rssRes = await fetch(`https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=${lang}&gl=US&ceid=US:en`, {
+      headers: { 'User-Agent': 'KlaudAPI/3.0' }
+    });
+    const rssXml = await rssRes.text();
+    const items = rssXml.split('<item>').slice(1, limit + 1);
+
+    articles = items.map(item => {
+      const title = extract(item, 'title');
+      const link = extract(item, 'link');
+      const pubDate = extract(item, 'pubDate');
+      const source = extract(item, 'source');
+      return { title, url: link, source, published: pubDate };
+    }).filter(a => a.title);
+  } catch {}
+
+  // Fallback: DuckDuckGo
+  if (articles.length === 0) {
+    try {
+      const ddgRes = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}&t=klaud&ia=news`, {
+        headers: { 'User-Agent': 'KlaudAPI/3.0' }
+      });
+      const ddgHtml = await ddgRes.text();
+      const links = [...ddgHtml.matchAll(/<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)/g)];
+      articles = links.slice(0, limit).map(m => ({ title: m[2].trim(), url: m[1], source: 'web', published: null }));
+    } catch {}
+  }
+
+  return json({ query, lang, count: articles.length, articles });
+}
+
+// === REDDIT ===
+async function handleReddit(url) {
+  const sub = url.searchParams.get('sub') || url.searchParams.get('subreddit');
+  const query = url.searchParams.get('q');
+  const sort = url.searchParams.get('sort') || 'hot';
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '10'), 25);
+
+  if (!sub && !query) return json({ error: 'Missing parameter. Use ?sub=technology or ?q=search+query', examples: ['/api/reddit?sub=machinelearning&limit=10', '/api/reddit?q=MCP+server&sort=relevance'] }, 400);
+
+  const headers = { 'User-Agent': 'KlaudAPI/3.0 (research-tool)' };
+  let redditUrl;
+
+  if (query) {
+    redditUrl = `https://www.reddit.com/search.json?q=${encodeURIComponent(query)}&sort=${sort}&limit=${limit}`;
+  } else {
+    redditUrl = `https://www.reddit.com/r/${encodeURIComponent(sub)}/${sort}.json?limit=${limit}`;
+  }
+
+  const res = await fetch(redditUrl, { headers });
+  if (!res.ok) return json({ error: `Reddit returned ${res.status}`, suggestion: 'Subreddit may not exist or Reddit is rate-limiting' }, res.status === 429 ? 429 : 502);
+
+  const data = await res.json();
+  const posts = (data?.data?.children || []).map(c => c.data).map(p => ({
+    title: p.title,
+    url: p.url_overridden_by_dest || p.url,
+    permalink: `https://reddit.com${p.permalink}`,
+    score: p.score,
+    comments: p.num_comments,
+    subreddit: p.subreddit,
+    author: p.author,
+    created: new Date(p.created_utc * 1000).toISOString(),
+    selftext: p.selftext ? p.selftext.substring(0, 300) + (p.selftext.length > 300 ? '...' : '') : null,
+    flair: p.link_flair_text
+  }));
+
+  return json({
+    subreddit: sub || null,
+    query: query || null,
+    sort,
+    count: posts.length,
+    posts
+  });
+}
+
 // === HELPERS ===
 function json(data, status = 200) {
   return new Response(JSON.stringify(data, null, 2), {
@@ -653,11 +822,15 @@ h2 span{color:#60a5fa}
 </head>
 <body>
 
+<div style="background:linear-gradient(90deg,#f59e0b,#ef4444);text-align:center;padding:12px 20px;font-weight:700;color:#fff;font-size:1.05em">
+  🔥 LAUNCH WEEK: Pro plan <span style="text-decoration:line-through;opacity:0.7">$9/mo</span> → <span style="font-size:1.3em">$1 for first week!</span> Limited time offer.
+</div>
+
 <div class="hero">
   <h1>🔧 <span>Klaud</span> API</h1>
   <p class="tagline">Research & dev tools for AI agents. Fast JSON APIs, no auth required.</p>
   <div class="stats">
-    <div class="stat"><div class="num">7</div><div class="label">Endpoints</div></div>
+    <div class="stat"><div class="num">11</div><div class="label">Endpoints</div></div>
     <div class="stat"><div class="num">20</div><div class="label">Free req/day</div></div>
     <div class="stat"><div class="num">&lt;200ms</div><div class="label">Avg response</div></div>
   </div>
@@ -709,6 +882,30 @@ h2 span{color:#60a5fa}
     <div class="desc">Drug & molecule search via ChEMBL. Lookup by name or find drugs by target gene.</div>
     <div class="params">?q=imatinib or ?target=EGFR</div>
   </div>
+  <div class="ep">
+    <div class="icon">🌤️</div>
+    <span class="method">GET</span> <span class="path">/api/weather</span>
+    <div class="desc">Current weather + 3-day forecast. Geocoding included — just pass a city name.</div>
+    <div class="params">?city=Tokyo or ?lat=35.68&lon=139.69</div>
+  </div>
+  <div class="ep">
+    <div class="icon">📖</div>
+    <span class="method">GET</span> <span class="path">/api/wiki</span>
+    <div class="desc">Wikipedia article search. Returns summaries, thumbnails, and page URLs.</div>
+    <div class="params">?q=quantum+computing&lang=en</div>
+  </div>
+  <div class="ep">
+    <div class="icon">📢</div>
+    <span class="method">GET</span> <span class="path">/api/news</span>
+    <div class="desc">News search via Google News RSS. Headlines, sources, publication dates.</div>
+    <div class="params">?q=SpaceX&limit=10&lang=en</div>
+  </div>
+  <div class="ep">
+    <div class="icon">🔴</div>
+    <span class="method">GET</span> <span class="path">/api/reddit</span>
+    <div class="desc">Reddit posts — browse subreddits or search across all of Reddit.</div>
+    <div class="params">?sub=technology&sort=hot&limit=10</div>
+  </div>
 </div>
 
 <h2>⚡ <span>Try it</span></h2>
@@ -734,8 +931,8 @@ h2 span{color:#60a5fa}
     </ul>
   </div>
   <div class="plan pro">
-    <div class="name">Pro <span class="badge">BEST VALUE</span></div>
-    <div class="price">$9<span>/month</span></div>
+    <div class="name">Pro <span class="badge" style="background:#ef444420;color:#ef4444">🔥 LAUNCH WEEK</span></div>
+    <div class="price"><span style="text-decoration:line-through;color:#64748b;font-size:0.5em">$9/mo</span> $1<span>/first week</span></div>
     <ul>
       <li>1,000 requests/day</li>
       <li>All 7 endpoints</li>
@@ -760,7 +957,7 @@ h2 span{color:#60a5fa}
 </div>
 
 <div class="footer">
-  Klaud API v2.1 — Powered by Cloudflare Workers<br>
+  Klaud API v3.0 — Powered by Cloudflare Workers<br>
   <a href="https://github.com/klaud-0x/klaud-api">GitHub</a> · <a href="https://dev.to/klaud0x">Dev.to</a>
 </div>
 

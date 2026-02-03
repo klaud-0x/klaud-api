@@ -95,15 +95,58 @@ curl "https://klaud-api.klaud0x.workers.dev/api/extract?url=https://news.ycombin
 - **Bots** — Telegram/Discord bots that share trending repos or papers
 - **RAG pipelines** — enrich your retrieval with fresh web and biomedical data
 
-## OpenClaw Skill (ClawHub)
+## 🔌 Integration Methods
 
-If you run an AI agent on [OpenClaw](https://openclaw.ai), install the skill directly:
+### Method 1: MCP Server (Claude Desktop, Cursor, Windsurf)
+
+Install as an [MCP](https://modelcontextprotocol.io) tool server — works with any MCP-compatible client:
+
+```json
+{
+  "mcpServers": {
+    "klaud-api": {
+      "command": "npx",
+      "args": ["-y", "klaud-api-mcp"]
+    }
+  }
+}
+```
+
+This gives your AI assistant 11 data tools it can call directly. [npm package →](https://www.npmjs.com/package/klaud-api-mcp)
+
+**Pro tier** — add your API key:
+```json
+{
+  "mcpServers": {
+    "klaud-api": {
+      "command": "npx",
+      "args": ["-y", "klaud-api-mcp"],
+      "env": { "KLAUD_API_KEY": "ka_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### Method 2: OpenClaw Skill
+
+If you run an AI agent on [OpenClaw](https://openclaw.ai):
 
 ```bash
 clawhub install klaud-api
 ```
 
-Your agent will automatically know how to use all 7 endpoints. No config needed for free tier.
+Or install manually from this repo — copy `skill/` folder to your workspace:
+
+```
+workspace/
+  skills/
+    klaud-api/
+      SKILL.md              ← agent instructions
+      references/
+        api-docs.md         ← endpoint documentation
+```
+
+Your agent will automatically know how to use all endpoints. No config needed for free tier.
 
 **Pro tier** — add your API key to `openclaw.json`:
 
@@ -111,7 +154,15 @@ Your agent will automatically know how to use all 7 endpoints. No config needed 
 { "skills": { "entries": { "klaud-api": { "apiKey": "ka_YOUR_KEY" } } } }
 ```
 
-Browse on ClawHub: [clawhub.ai/skills → klaud-api](https://clawhub.ai)
+### Method 3: Direct API calls
+
+No SDK needed — just HTTP GET:
+
+```bash
+curl "https://klaud-api.klaud0x.workers.dev/api/hn?topic=ai&limit=5"
+```
+
+Works from any language, any agent framework, any environment. See [endpoints](#endpoints) above.
 
 ## Pricing
 
