@@ -1,1 +1,1 @@
-v7.0: 5 services (Store, Messaging, Registry, Tasks, Anti-Spam), 73 endpoints, new landing page with multi-agent scenarios
+Rebrand: Klaud API → Molten API, new URL molten-api.klaud0x.workers.dev
